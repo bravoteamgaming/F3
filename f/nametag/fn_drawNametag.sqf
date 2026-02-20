@@ -1,52 +1,147 @@
-// F3 - Draw Nametag
-// Credits: Please see the F3 online manual (http://www.ferstaberinde.com/f3/en/)
-// ====================================================================================
+// Draws Tag info for nearby units.
 
-private ["_u","_pos","_suffix","_color","_str","_height","_showgroup","_showdis","_showveh","_veh"];
+if (isNil "F_SHOW_TAGS") exitWith {};
 
-// Declare variables
-_u = _this select 0;
-_pos = _this select 1;
-_height =
-switch (stance _u) do {
-    case "CROUCH": {
-    	f_height_crouch_Nametags;
-    };
-    case "PRONE": {
-		f_height_prone_Nametags;
+if !F_SHOW_TAGS exitWith {};
+
+// Set defaults in case they were missed
+if (isNil "F_SIZE_TAGS") then { F_SIZE_TAGS = 0.04 };
+if (isNil "F_FONT_TAGS") then { F_FONT_TAGS = "PuristaBold" };
+if (isNil "F_TEAM_TAGS") then { F_TEAM_TAGS = true };
+if (isNil "F_NAME_TAGS") then { F_SHOW_TAGS = true };
+if (isNil "F_GPID_TAGS") then { F_GPID_TAGS = true };
+if (isNil "F_TYPE_TAGS") then { F_TYPE_TAGS = true };
+if (isNil "F_TYPE_ICON") then { F_TYPE_ICON = true };
+if (isNil "F_OVER_ONLY") then { F_OVER_ONLY = false };
+
+{
+	private _unit = _x;
+
+	_dist = (player distance _unit) / (missionNamespace getVariable ['F_DIST_TAGS', 60]);
+	_colorIcon = [1,1,1,1];
+	_colorName = [1,1,1,1];
+	_colorRole = [1,0.75,0,1];
+	_icon = format ["a3\Ui_f\data\GUI\Cfg\Ranks\%1_gs.paa",rank _unit];
+
+	if (leader _unit == _unit) then {
+		_colorIcon = [1,0.75,0,1];
+		//_colorRole = [1,1,1,1];
+		_icon = "a3\Ui_f\data\GUI\Cfg\Ranks\general_gs.paa";
 	};
-	default {f_height_standing_Nametags};
-};
-_suffix = if (count _this > 2) then {_this select 2} else {""};
+	
+	if (F_TYPE_ICON) then {
+		if (leader _unit == _unit) exitWith { _icon = "\A3\ui_f\data\map\vehicleIcons\iconManLeader_ca.paa" };
+		_icon = getText (configFile >> "CfgVehicles" >> typeOf (vehicle _unit) >> "icon");
+	};
 
-_str = name _u + _suffix;
+	if (_unit getVariable "talking") then {
+		_icon = selectRandom ["A3\Ui_f\data\GUI\Rsc\RscDisplayArsenal\voice_ca.paa"];
+	};
+	
+	// Units of same group
+	if(_unit in units player) then {
+		switch (assignedTeam _unit) do {
+			case "RED": {_colorIcon = [1,0,0,1]; };
+			case "GREEN": {_colorIcon = [0,1,0,1]; };
+			case "BLUE": {_colorIcon = [0,0.5,1,1]; };
+			case "YELLOW": {_colorIcon = [1,1,0,1]; };
+			default {_colorIcon = [1,1,1,1] };
+		};
+	};
+	
+	// Set role icon
+	if (vehicle _unit != _unit) then {
+		(((fullCrew (vehicle _unit)) select {_x#0 isEqualTo _unit})#0) params ["", "_role", "_index", "_turretPath", "_isTurret"];
+		
+		if (_role == "driver") exitWith { _icon = "a3\ui_f\data\igui\cfg\commandBar\imagedriver_ca.paa" };
+		if (_role == "commander") exitWith { _icon = "a3\ui_f\data\igui\cfg\commandBar\imagecommander_ca.paa" };
+		if (_role == "cargo") exitWith { _icon = "a3\ui_f\data\igui\cfg\commandBar\imagecargo_ca.paa" };
+		if (_role == "turret" && _isTurret) exitWith { _icon = "a3\ui_f\data\igui\cfg\simpleTasks\types\rifle_ca.paa" };
+		if (_role == "gunner" || (_role == "turret" && !_isTurret)) exitWith { _icon = "a3\ui_f\data\igui\cfg\commandBar\imagegunner_ca.paa" };
+	};
+				
+	// Check if we're allowed to show the injured icons
+	if (missionNamespace getVariable ["f_var_ShowInjured", true]) then {
+		// Show incapacitated units if allowed
+		if ((_unit getVariable["ACE_isUnconscious", false]) || lifeState _unit == "INCAPACITATED") then {
+			_icon = "\a3\ui_f\data\IGUI\Cfg\holdActions\holdAction_forceRespawn_ca.paa";
+			_colorIcon = [1,0.1,0.1,1];
+		};
+		
+		// Show stabilised units if allowed
+		if (_unit getVariable "FAR_var_isStable") then { 
+			_icon = "\a3\ui_f\data\IGUI\Cfg\holdActions\holdAction_revive_ca.paa";
+			_colorIcon = [0.7,0.0,0.6,1];
+		};
+	};
 
-//If the unit is dead, exit.
-if (!alive _u) exitWith {};
+	_trans = 1 - _dist;
+	
+	if (_trans > 0.1) then {
+		_colorIcon set [3, _trans min 0.6];
+		_colorName set [3, _trans];
+		_colorRole set [3, _trans];
+					
+		_posIcon = getPosVisual _unit;
+		_height = [(if (surfaceIsWater _posIcon) then { (getPosASL _unit)#2 } else { (getPosATL _unit)#2 }) + 2, 3] select (vehicle _unit != _unit);
+		_posIcon set [2, _height];
+		
+		_target = effectiveCommander vehicle cursorTarget;
+		
+		if (F_OVER_ONLY && _target != _unit) exitWith {};
 
-// Define the color of the nametag
-_color = F_COLOR_NAMETAGS; // Default color
-if (_suffix != "") then {_color = F_COLOR2_NAMETAGS};			// Mounted units
-if(_x in units player) then { _color = f_groupColor_Nametags }; // Units of same group
+		// Icon
+		if (!F_TEAM_TAGS || _unit in units player || _target == _unit) then {
+			drawIcon3D [
+				_icon,
+				_colorIcon,
+				_posIcon,
+				1,
+				1,
+				2,
+				"",
+				2,
+				F_SIZE_TAGS * 0.7,
+				F_FONT_TAGS
+			];
+		};
+		
+		if (_target == _unit || (!F_TEAM_TAGS && vehicle _unit != _unit)) then {
+			// Name / Group
+			drawIcon3D [
+			"",
+			_colorName,
+			_posIcon,
+			2,
+			-1.40,
+			0,
+			format["%1%2",
+				if (F_GPID_TAGS) then { if (group _unit != group player || !F_NAME_TAGS) then { format["%1%2", groupId (group _unit), [""," - "] select F_NAME_TAGS] } else { "" } } else { "" },
+				if (F_NAME_TAGS) then { name _unit } else { ""}
+			],
+			2,
+			F_SIZE_TAGS,
+			F_FONT_TAGS,
+			"Right"
+			];
 
-// Check which tags to show
-_showgroup = if (!isNil "F_SHOWGROUP_NAMETAGS") then [{F_SHOWGROUP_NAMETAGS},{false}];
-_showdis = if (!isNil "F_SHOWDISTANCE_NAMETAGS") then [{F_SHOWDISTANCE_NAMETAGS},{false}];
-_showveh = if (!isNil "f_showVehicle_Nametags") then [{f_showVehicle_Nametags},{false}];
-
-// Show group name for other groups only
-if (_showgroup && group _u != group player) then {_str = format ["%1 ",groupID (group _u)] + _str};
-
-// Show distance for units in over 3m distance only
-if (_showdis && {_pos distance player >= 3}) then {
-	_str = _str + format [" - %1m",round (_pos distance player)];
-	//drawIcon3D ["", _color, [_pos select 0,_pos select 1,(getPosATL _x select 2) - _height], 0, 0, 0, _str, F_SHADOW_NAMETAGS,(F_SIZE_NAMETAGS - 0.005), F_FONT_NAMETAGS];
-};
-
-drawIcon3D ["", _color, [_pos select 0,_pos select 1,(getPosATL _x select 2) + _height], 0, 0, 0, _str, F_SHADOW_NAMETAGS,F_SIZE_NAMETAGS, F_FONT_NAMETAGS];
-
-// Show vehicle type only for vehicles the player is not crewing himself
-if (_showveh && {!(typeOf (vehicle _u) isKindof "Man") && vehicle _u != vehicle player && ((_u == driver vehicle _u) || (_u == gunner vehicle _u))}) then {
-  _str = format ["%1",getText (configFile >> "CfgVehicles" >> (typeOf vehicle _u) >> "displayname")];
-  drawIcon3D ["", _color, [_pos select 0,_pos select 1,(getPosATL _x select 2) + _height - 0.2], 0, 0, 0, _str,F_SHADOW_NAMETAGS,F_SIZE_NAMETAGS,F_FONT_NAMETAGS];
-};
+			// Role / Vehicle
+			drawIcon3D [
+			"",
+			_colorRole,
+			_posIcon,
+			2,
+			0.20,
+			0,
+			format["%1%2",
+				if (F_TYPE_TAGS || vehicle _unit != _unit) then { getText (configFile >> "CfgVehicles" >> typeOf (vehicle _unit) >> "displayName") + " " } else { "" },
+				if (vehicle _unit != _unit) then { format["[%1/%2] ", count fullCrew [vehicle _unit, "", false], count fullCrew [vehicle _unit, "", true]] } else { "" }
+			],
+			2,
+			F_SIZE_TAGS * 0.7,
+			F_FONT_TAGS,
+			"Right"
+			];
+		};
+	};
+} forEach ((playableUnits + switchableUnits - [player]) select {alive _x && (side group _x getFriend side group player) > 0.6 && (vehicle _x == _x || (effectiveCommander (vehicle _x)) == _x)});

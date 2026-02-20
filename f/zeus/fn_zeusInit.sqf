@@ -1,83 +1,47 @@
 // F3 Zeus Support  - Initialization
-// Credits: Please see the F3 online manual (http://www.ferstaberinde.com/f3/en/)
-// ====================================================================================
+// Credits: Please see the F3 online manual http://www.ferstaberinde.com/f3/en/
 
-// SERVER CHECK
-// Ensure this script only executes on the server:
+if !isServer exitWith {};
 
-if !(isServer) exitWith {};
+["fn_zeusInit.sqf","Started","DEBUG"] call f_fnc_logIssue;
 
-// ====================================================================================
+if (isNil "f_fnc_zeusAssign") then { f_fnc_zeusAssign = compileFinal preprocessFileLineNumbers "f\zeus\fn_zeusAssign.sqf"; };
+if (isNil "f_fnc_zeusAddObjects") then { f_fnc_zeusAddObjects = compileFinal preprocessFileLineNumbers "f\zeus\fn_zeusAddObjects.sqf"; };
+if (isNil "f_fnc_zeusAddAddons") then { f_fnc_zeusAddAddons = compileFinal preprocessFileLineNumbers "f\zeus\fn_zeusAddAddons.sqf"; };
+if (isNil "f_fnc_zeusRemovePlayers") then { f_fnc_zeusRemovePlayers = compileFinal preprocessFileLineNumbers "f\zeus\fn_zeusRemovePlayers.sqf"; };
+if (isNil "f_fnc_zeusTerm") then { f_fnc_zeusTerm = compileFinal preprocessFileLineNumbers "f\zeus\fn_zeusTerm.sqf"; };
 
-// DECLARE VARIABLES
+f_fnc_zeusCreate = {
+	params ["_curatorID", ["_target", "objNull"]];
+	waitUntil { (missionNamespace getVariable ["f_var_missionLoaded", false]) };
+	
+	if (!isNull (missionNamespace getVariable [_curatorID, objNull])) exitWith {};
+	
+	_curator = (createGroup sideLogic) createUnit ["ModuleCurator_F",[0,0,0],[],0,""];
+	_curator setVehicleVarName _curatorID;
+	missionNamespace setVariable [_curatorID, _curator];
 
-private ["_unit","_addons","_objects","_curator","_createModule"];
+	_curator setVariable ["ShowNotification", FALSE, TRUE];
+	_curator setVariable ["Addons", 3, TRUE]; // 1 - Mission, 2 - Official, 3 - Unofficial
+	_curator setVariable ["Owner", _target];  
+	_curator setVariable ["BIS_fnc_initModules_activate", TRUE];
+	
+	[_curator, [-1, -2, 0]] call bis_fnc_setCuratorVisionModes;
+	
+	_curator setCuratorWaypointCost 0;
+	{ _curator setCuratorCoef [_curatorID, 0] } forEach ["place", "edit", "delete", "destroy", "group", "synchronize"];
 
-// ====================================================================================
-
-// SET KEY VARIABLES
-// Using variables passed to the script instance, we will create some local variables:
-
-_unit = [_this,0,objNull] call bis_fnc_param;
-_addons = [_this,1,true,["",true,[]]] call bis_fnc_param;
-_objects = [_this,2,[],[objNull,true,[],west]] call bis_fnc_param;
-_announce = [_this,3,false] call bis_fnc_param;
-
-// ====================================================================================
-
-// SETUP CURATOR
-
-// Exit if no unit was passed
-if (isNull _unit) exitWith {};
-
-// Exit if no unit was passed
-if !(isNull (getAssignedCuratorLogic _unit)) exitWith {
-	diag_log format ["DEBUG (f\zeus\fn_zeusInit.sqf): ZEUS already assigned to %1.",_unit];
-	systemchat format ["DEBUG (f\zeus\fn_zeusInit.sqf): ZEUS already assigned to %1.",_unit];
+	["fn_zeusInit.sqf",format["Curator Assigned (%1 - %2)", _curatorID, _target], "INFO"] call f_fnc_logIssue;
+	
+	_curator
 };
 
-// Exit if the unit is not a player
-if !(isPlayer _unit) exitWith {
-	diag_log format ["DEBUG (f\zeus\fn_zeusInit.sqf): Did not assign ZEUS to %1 because it is not under control of a player.",_unit];
-	systemchat format ["DEBUG (f\zeus\fn_zeusInit.sqf): Did not assign ZEUS to %1 because it is not under control of a player.",_unit];
+// Create free in-game curator, assign to admin by default.
+["f_ZeusCurator", "#AdminLogged"] spawn f_fnc_zeusCreate;
+
+// Set up author for Zeus
+if !(isNil "f_var_AuthorUID") then {
+	["f_ZeusCuratorAuthor",f_var_AuthorUID] spawn f_fnc_zeusCreate;	
+} else {
+	["f_ZeusCuratorAuthor","76561197970695190"] spawn f_fnc_zeusCreate;	
 };
-
-// Make sure a side logic exists, if not create it
-if (isNil "f_var_sideCenter") then {
-	f_var_sideCenter = createCenter sideLogic;
-	publicVariable "f_var_sideCenter";
-};
-
-// Create a new curator logic
-_curator = (createGroup f_var_sideCenter) createUnit ["ModuleCurator_F",[0,0,0] , [], 0, ""];
-
-// Assign the passed unit as curator
-_unit assignCurator _curator;
-
-//Add desired addons
-[_curator,_addons] spawn f_fnc_zeusAddAddons;
-
-//Add desired objects
-[_curator,_objects] spawn f_fnc_zeusAddObjects;
-
-// Reduce costs for all actions
-_curator setCuratorWaypointCost 0;
-{_curator setCuratorCoef [_x,0];} forEach ["place","edit","delete","destroy","group","synchronize"];
-
-// Check if F3 AI Skill Selector is active and assign corresponding event-handler
-if({!isNil _x} count ["f_param_AISkill_BLUFOR","f_param_AISkill_INDP","f_param_AISkill_OPFOR"] > 0) then {
-    _curator addEventHandler ['CuratorObjectPlaced',{{[_x] call f_fnc_setAISkill;} forEach crew(_this select 1)}];
-};
-
-// Setup
-
-// If announce is set to true, the new curator will be announced to all players
-if (_announce) then {
-	_curator setVariable ["owner",format["%1",_unit],true];
-	[["Alert",[format ["%1 has become curator!",name _unit]]],"BIS_fnc_showNotification",true] call BIS_fnc_MP;
-};
-
-// ====================================================================================
-
-// Return the newly created curator
-_curator
